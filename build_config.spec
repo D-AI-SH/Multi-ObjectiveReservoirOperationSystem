@@ -105,6 +105,14 @@ excludes = [
     'jupyter',
     'notebook',
     'IPython',
+    # 排除PyQt5以避免与PyQt6冲突
+    'PyQt5',
+    'PyQt5.QtCore',
+    'PyQt5.QtWidgets',
+    'PyQt5.QtGui',
+    'PyQt5.QtWebEngineWidgets',
+    'PyQt5.QtWebEngineCore',
+    'PyQt5.sip',
 ]
 
 # 二进制文件
