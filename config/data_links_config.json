@@ -1,0 +1,11 @@
+{
+  "data_links": {
+    "test_reservoir": [
+      "test_source",
+      "test_column"
+    ]
+  },
+  "reservoir_count": 1,
+  "last_model": "TEST_MODEL",
+  "auto_config_enabled": true
+}

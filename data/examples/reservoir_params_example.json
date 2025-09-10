@@ -1,0 +1,8 @@
+{
+  "name": "示例水库",
+  "capacity": 1000,
+  "min_level": 100,
+  "max_level": 200,
+  "initial_level": 150,
+  "target_level": 160
+}

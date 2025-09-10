@@ -1,0 +1,46 @@
+{
+  "OpenAI": {
+    "api_key": "",
+    "base_url": "https://api.openai.com"
+  },
+  "百度千帆": {
+    "api_key": "",
+    "secret_key": "",
+    "base_url": "https://qianfan.baidu.com"
+  },
+  "阿里通义": {
+    "api_key": "",
+    "base_url": "https://dashscope.aliyuncs.com",
+    "model": "qwen-flash"
+  },
+  "讯飞星火": {
+    "app_id": "",
+    "api_key": "",
+    "api_secret": "",
+    "base_url": "https://spark-api.xf-yun.com"
+  },
+  "智谱 ChatGLM": {
+    "api_key": "",
+    "base_url": "https://open.bigmodel.cn"
+  },
+  "MiniMax": {
+    "group_id": "",
+    "api_key": "",
+    "base_url": "https://api.minimax.chat"
+  },
+  "DeepSeek": {
+    "api_key": "sk-d1235bda1cdd4d05877a18053abe3eab",
+    "base_url": "https://api.deepseek.com"
+  },
+  "硅基流动": {
+    "api_key": "",
+    "base_url": "https://platform.ai-siliconflow.com"
+  },
+  "月之暗面": {
+    "api_key": "",
+    "base_url": "https://api.moonshot-ai.com"
+  },
+  "_meta": {
+    "current_vendor": "DeepSeek"
+  }
+}

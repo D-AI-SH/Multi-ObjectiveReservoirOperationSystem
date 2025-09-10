@@ -1,0 +1,227 @@
+{
+    "model_name": "Saint-Venant水动力模型",
+    "model_type": "hydrodynamic",
+    "version": "1.0.0",
+    "description": "基于Saint-Venant方程组的一维明渠非恒定流数值模型",
+    
+    "parameters": {
+        "spatial": {
+            "dx": {
+                "value": 100.0,
+                "unit": "m",
+                "description": "空间步长",
+                "min": 10.0,
+                "max": 1000.0,
+                "recommended": [50.0, 100.0, 200.0, 500.0]
+            },
+            "nx": {
+                "value": 100,
+                "unit": "-",
+                "description": "空间网格数",
+                "min": 10,
+                "max": 1000,
+                "recommended": [50, 100, 200, 500]
+            }
+        },
+        "temporal": {
+            "dt": {
+                "value": 1.0,
+                "unit": "s",
+                "description": "时间步长",
+                "min": 0.1,
+                "max": 100.0,
+                "recommended": [0.5, 1.0, 5.0, 10.0]
+            },
+            "nt": {
+                "value": 1000,
+                "unit": "-",
+                "description": "时间网格数",
+                "min": 100,
+                "max": 10000,
+                "recommended": [500, 1000, 2000, 5000]
+            }
+        },
+        "physical": {
+            "manning_n": {
+                "value": 0.015,
+                "unit": "-",
+                "description": "Manning粗糙系数",
+                "min": 0.008,
+                "max": 0.060,
+                "recommended": [0.012, 0.015, 0.020, 0.030, 0.040]
+            },
+            "channel_width": {
+                "value": 10.0,
+                "unit": "m",
+                "description": "渠道宽度",
+                "min": 1.0,
+                "max": 1000.0,
+                "recommended": [5.0, 10.0, 20.0, 50.0, 100.0]
+            },
+            "channel_slope": {
+                "value": 0.001,
+                "unit": "-",
+                "description": "渠道坡度",
+                "min": 0.0001,
+                "max": 0.1,
+                "recommended": [0.0005, 0.001, 0.002, 0.005, 0.01]
+            }
+        }
+    },
+    
+    "input_data": {
+        "required": [
+            "upstream_discharge",
+            "downstream_depth",
+            "initial_depth",
+            "initial_velocity"
+        ],
+        "optional": [],
+        "formats": {
+            "upstream_discharge": {
+                "type": "array",
+                "unit": "m³/s",
+                "description": "上游流量时间序列",
+                "length": "nt"
+            },
+            "downstream_depth": {
+                "type": "array",
+                "unit": "m",
+                "description": "下游水深时间序列",
+                "length": "nt"
+            },
+            "initial_depth": {
+                "type": "array",
+                "unit": "m",
+                "description": "初始水深空间分布",
+                "length": "nx"
+            },
+            "initial_velocity": {
+                "type": "array",
+                "unit": "m/s",
+                "description": "初始流速空间分布",
+                "length": "nx"
+            }
+        }
+    },
+    
+    "output_data": {
+        "water_depth": {
+            "type": "2D_array",
+            "unit": "m",
+            "description": "水深时空分布",
+            "dimensions": ["time", "space"]
+        },
+        "velocity": {
+            "type": "2D_array",
+            "unit": "m/s",
+            "description": "流速时空分布",
+            "dimensions": ["time", "space"]
+        },
+        "discharge": {
+            "type": "2D_array",
+            "unit": "m³/s",
+            "description": "流量时空分布",
+            "dimensions": ["time", "space"]
+        },
+        "time_points": {
+            "type": "1D_array",
+            "unit": "s",
+            "description": "时间点数组"
+        },
+        "space_points": {
+            "type": "1D_array",
+            "unit": "m",
+            "description": "空间点数组"
+        }
+    },
+    
+    "validation": {
+        "cfl_condition": {
+            "description": "CFL稳定性条件",
+            "formula": "dt <= dx / (v + sqrt(gh))",
+            "recommendation": "确保时间步长满足CFL条件以保证数值稳定性"
+        },
+        "boundary_conditions": {
+            "description": "边界条件合理性",
+            "checks": [
+                "上游流量应为正值",
+                "下游水深应为正值",
+                "初始水深和流速应为正值"
+            ]
+        }
+    },
+    
+    "applications": {
+        "flood_routing": {
+            "description": "洪水演进模拟",
+            "suitable": true,
+            "notes": "适用于河道洪水传播计算"
+        },
+        "channel_design": {
+            "description": "渠道设计分析",
+            "suitable": true,
+            "notes": "可评估渠道过流能力和稳定性"
+        },
+        "water_quality": {
+            "description": "水质输运模拟",
+            "suitable": true,
+            "notes": "可与其他水质模型耦合使用"
+        },
+        "reservoir_operation": {
+            "description": "水库调度分析",
+            "suitable": true,
+            "notes": "分析水库放水对下游的影响"
+        }
+    },
+    
+    "performance": {
+        "typical_execution_time": {
+            "small_scale": "0.1-1秒",
+            "medium_scale": "1-10秒",
+            "large_scale": "10-100秒"
+        },
+        "memory_requirements": {
+            "small_scale": "1-10 MB",
+            "medium_scale": "10-100 MB",
+            "large_scale": "100-1000 MB"
+        },
+        "scalability": {
+            "description": "计算复杂度为O(nx * nt)",
+            "limitations": "大规模计算时内存需求较高"
+        }
+    },
+    
+    "references": {
+        "theoretical_basis": [
+            "Saint-Venant方程组",
+            "Manning公式",
+            "有限差分方法"
+        ],
+        "literature": [
+            "Chow, V.T. (1959). Open-Channel Hydraulics. McGraw-Hill.",
+            "Cunge, J.A., Holly, F.M., & Verwey, A. (1980). Practical Aspects of Computational River Hydraulics. Pitman.",
+            "Sturm, T.W. (2001). Open Channel Hydraulics. McGraw-Hill."
+        ]
+    },
+    
+    "integration": {
+        "compatible_models": [
+            "SCS-CN模型",
+            "水库调度模型",
+            "水质模型"
+        ],
+        "data_formats": [
+            "CSV",
+            "Excel",
+            "JSON",
+            "NetCDF"
+        ],
+        "visualization": {
+            "contour_plots": true,
+            "time_series": true,
+            "spatial_profiles": true,
+            "animation": false
+        }
+    }
+}
