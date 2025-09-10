@@ -53,23 +53,6 @@ def check_environment():
     
     return True
 
-def clean_build_dirs():
-    """清理构建目录"""
-    print("清理构建目录...")
-    
-    dirs_to_clean = ['build', 'dist', '__pycache__']
-    for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
-            print(f"已删除: {dir_name}")
-    
-    # 清理.spec文件
-    spec_files = list(Path('.').glob('*.spec'))
-    for spec_file in spec_files:
-        if spec_file.name != 'build_config.spec':
-            spec_file.unlink()
-            print(f"已删除: {spec_file}")
-
 def prepare_build():
     """准备构建环境"""
     print("准备构建环境...")
@@ -167,10 +150,6 @@ def main():
             return False
         print("✅ 环境检查通过")
         
-        # 清理构建目录
-        print("\n步骤 2: 清理构建目录")
-        clean_build_dirs()
-        print("✅ 构建目录清理完成")
         
         # 准备构建
         print("\n步骤 3: 准备构建环境")

@@ -19,7 +19,8 @@ from uiLAYER.schedule_tab import ScheduleTab
 from visLAYER.vis_tab import VisTab
 from scheduleLAYER.schedule_manager import ScheduleManager
 from uiLAYER.chat_widget import ChatWidget
-from PyQt6.QtCore import Qt
+from compute_thread import ComputeThread
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QColor
 
 class MainWindow(QMainWindow):
@@ -38,6 +39,10 @@ class MainWindow(QMainWindow):
         self.data_manager = DataManager(ai_enabled=False)  # 默认关闭AI功能
         self.model_manager = ModelManager()
         self.schedule_manager = ScheduleManager()
+        
+        # 创建计算线程
+        self.compute_thread = ComputeThread(self)
+        self._connect_compute_thread_signals()
 
         # 创建一个Tab窗口
         tabs = QTabWidget()
@@ -98,6 +103,13 @@ class MainWindow(QMainWindow):
         self.btn_export.clicked.connect(self.export_results_to_csv)
         header_layout.addWidget(self.btn_export)
         
+        # 添加取消计算按钮
+        self.btn_cancel_compute = QPushButton("取消计算")
+        self.btn_cancel_compute.setToolTip("取消当前正在运行的计算任务")
+        self.btn_cancel_compute.clicked.connect(self.cancel_current_computation)
+        self.btn_cancel_compute.setVisible(False)  # 默认隐藏
+        header_layout.addWidget(self.btn_cancel_compute)
+        
         header_layout.addStretch()
         self.header_title = QLabel("多目标水库调度系统")
         self.header_title.setObjectName("HeaderTitle")
@@ -127,8 +139,19 @@ class MainWindow(QMainWindow):
         # 折叠状态记录
         self._chat_collapsed = False
         self._splitter_prev_sizes = self.splitter.sizes()
+        
+        # 计算状态管理
+        self._current_task_type = None  # 'model' 或 'schedule'
+        self._progress_timer = QTimer()
+        self._progress_timer.timeout.connect(self._update_progress_display)
 
-
+    def _connect_compute_thread_signals(self):
+        """连接计算线程信号"""
+        self.compute_thread.progress_updated.connect(self._on_compute_progress_updated)
+        self.compute_thread.model_completed.connect(self._on_model_completed)
+        self.compute_thread.schedule_completed.connect(self._on_schedule_completed)
+        self.compute_thread.error_occurred.connect(self._on_compute_error)
+        self.compute_thread.task_finished.connect(self._on_task_finished)
     
     def _preload_vector_retriever(self):
         """预加载向量检索器，避免首次使用时延迟"""
@@ -217,9 +240,11 @@ class MainWindow(QMainWindow):
         if running:
             self.header_title.setText("正在运行计算")
             self._apply_header_style(self._header_color_running)
+            self.btn_cancel_compute.setVisible(True)
         else:
             self.header_title.setText("多目标水库调度系统")
             self._apply_header_style(self._header_color_default)
+            self.btn_cancel_compute.setVisible(False)
         QApplication.processEvents()
 
     def run_dispatch_model(self):
@@ -227,6 +252,11 @@ class MainWindow(QMainWindow):
         根据数据链接运行调度模型，并可视化结果。
         支持多水库运行。
         """
+        # 检查计算线程是否忙碌
+        if self.compute_thread.is_busy():
+            print("警告：计算线程正在运行中，请等待当前任务完成")
+            return
+            
         selected_model = self.model_tab.model_combo.currentText()
         if not selected_model or selected_model not in MODEL_DATA_REQUIREMENTS:
             print("错误：请先选择一个有效的模型。")
@@ -250,51 +280,31 @@ class MainWindow(QMainWindow):
             print("错误：一个或多个模型参数无效，请检查输入。")
             return
         
-        # 选择并运行模型
-        self.model_manager.select_model(selected_model)
-
+        # 设置当前任务类型
+        self._current_task_type = 'model'
+        
+        # 启动计算线程
         self._set_header_running(True)
-        try:
-            # 为每个水库运行模型
-            reservoir_results = {}
-            failures: dict[int, dict] = {}
-            for reservoir_id, input_df in reservoir_input_data.items():
-                print(f"正在为水库 {reservoir_id} 运行模型...")
-                results_df = self.model_manager.run_model(input_df, params)
-                if results_df is not None:
-                    reservoir_results[reservoir_id] = results_df
-                    print(f"水库 {reservoir_id} 模型运行完成")
-                else:
-                    # 从模型管理器提取失败原因
-                    last_raw = getattr(self.model_manager, 'results', None)
-                    if isinstance(last_raw, dict) and not last_raw.get('success', True):
-                        failures[reservoir_id] = {
-                            'message': last_raw.get('message', '未知错误'),
-                            'error': last_raw.get('error'),
-                            'diagnostics': last_raw.get('diagnostics', {})
-                        }
-                    else:
-                        failures[reservoir_id] = {'message': '运行失败（未提供详细错误）'}
-
-            if reservoir_results:
-                # 存储结果到数据管理器
-                self.data_manager.store_multi_reservoir_results({'model_results': reservoir_results})
-                # 更新可视化界面
-                self.vis_tab.set_input_data(reservoir_input_data)
-                self.vis_tab.set_model_results(reservoir_results)
-                print(f"多水库模型运行完成，共 {len(reservoir_results)} 个水库")
-            else:
-                print("错误：所有水库模型运行均失败")
-
-            # 不论成败，均在 AI 助手界面生成报告
-            self.chat_widget.show_model_run_report(selected_model, reservoir_results, params, failures=failures)
-        finally:
+        self._progress_timer.start(100)  # 每100ms更新一次进度显示
+        
+        success = self.compute_thread.run_model_computation(
+            selected_model, reservoir_input_data, params, required_ids
+        )
+        
+        if not success:
             self._set_header_running(False)
+            self._progress_timer.stop()
+            print("错误：无法启动模型计算线程")
 
     def run_schedule_optimization(self):
         """
         根据用户在调度优化标签页的设置运行多目标调度算法。
         """
+        # 检查计算线程是否忙碌
+        if self.compute_thread.is_busy():
+            print("警告：计算线程正在运行中，请等待当前任务完成")
+            return
+            
         objectives = self.schedule_tab.get_objectives()
         params = self.schedule_tab.get_all_params()  # 获取所有参数，包括水库物理参数
 
@@ -313,52 +323,19 @@ class MainWindow(QMainWindow):
             'reservoir_count': len(input_data) if input_data else 1
         }
 
+        # 设置当前任务类型
+        self._current_task_type = 'schedule'
+        
+        # 启动计算线程
         self._set_header_running(True)
-        try:
-            results_df = self.schedule_manager.optimize(schedule_input, objectives, params)
-
-            if results_df is not None and not results_df.empty:
-                print("调度优化结果:\n", results_df.head())
-
-                # 获取调度策略信息
-                schedule_strategy = results_df.attrs.get('schedule_strategy', {})
-                
-                # 存储调度优化结果
-                import pandas as pd
-                
-                # 修复目标函数数据结构，确保包含reservoir_id字段
-                objectives_df = results_df[['flood', 'power', 'supply', 'ecology', 'reservoir_id']].copy()
-                
-                # 添加帕累托前沿数据
-                pareto_front = results_df.copy()  # 使用所有结果作为帕累托前沿
-                
-                schedule_results = {
-                    'optimization_results': results_df,
-                    'objectives': objectives_df,
-                    'pareto_front': pareto_front,
-                    'schedule_strategy': schedule_strategy
-                }
-                
-                # 输出调度策略信息
-                self._print_schedule_strategy(schedule_strategy)
-                
-                # 更新可视化界面
-                self.vis_tab.set_schedule_results(schedule_results)
-                
-                # 自动选择调度优化结果数据类型并显示
-                self.vis_tab.data_type_combo.setCurrentText("调度优化结果")
-                self.vis_tab.on_data_type_changed()
-                
-                # 存储调度优化结果到数据管理器
-                self.data_manager.store_multi_reservoir_results({'schedule_results': schedule_results})
-                
-                # 生成并显示调度优化报告
-                self.chat_widget.show_schedule_optimization_report(objectives, params, schedule_results)
-                
-            else:
-                print("调度优化失败或无结果")
-        finally:
+        self._progress_timer.start(100)  # 每100ms更新一次进度显示
+        
+        success = self.compute_thread.run_schedule_optimization(objectives, params, schedule_input)
+        
+        if not success:
             self._set_header_running(False)
+            self._progress_timer.stop()
+            print("错误：无法启动调度优化计算线程")
 
     def _print_schedule_strategy(self, strategy_report: Dict[str, Any]):
         """打印调度策略信息"""
@@ -402,6 +379,119 @@ class MainWindow(QMainWindow):
                     print(f"    - {rec}")
         
         print("="*60)
+
+    # ================ 计算线程信号处理方法 ================
+    
+    def _on_compute_progress_updated(self, progress: int, message: str):
+        """处理计算进度更新"""
+        # 更新标题栏显示进度
+        if self._current_task_type == 'model':
+            self.header_title.setText(f"正在运行模型计算... {progress}%")
+        elif self._current_task_type == 'schedule':
+            self.header_title.setText(f"正在运行调度优化... {progress}%")
+        
+        print(f"计算进度: {progress}% - {message}")
+        QApplication.processEvents()
+    
+    def _on_model_completed(self, reservoir_results: dict, failures: dict):
+        """处理模型计算完成"""
+        try:
+            if reservoir_results:
+                # 存储结果到数据管理器
+                self.data_manager.store_multi_reservoir_results({'model_results': reservoir_results})
+                
+                # 获取输入数据用于可视化
+                selected_model = self.model_tab.model_combo.currentText()
+                required_ids = MODEL_DATA_REQUIREMENTS[selected_model]
+                reservoir_count = self.data_config_tab.reservoir_count
+                reservoir_input_data = self.data_manager.get_multi_reservoir_input_data(required_ids, reservoir_count)
+                
+                # 更新可视化界面
+                self.vis_tab.set_input_data(reservoir_input_data)
+                self.vis_tab.set_model_results(reservoir_results)
+                print(f"多水库模型运行完成，共 {len(reservoir_results)} 个水库")
+            else:
+                print("错误：所有水库模型运行均失败")
+
+            # 获取参数用于报告
+            params = self.model_tab.get_params()
+            selected_model = self.model_tab.model_combo.currentText()
+            
+            # 在 AI 助手界面生成报告
+            self.chat_widget.show_model_run_report(selected_model, reservoir_results, params, failures=failures)
+            
+        except Exception as e:
+            print(f"处理模型计算结果时出错: {e}")
+    
+    def _on_schedule_completed(self, schedule_results: dict):
+        """处理调度优化完成"""
+        try:
+            # 输出调度策略信息
+            schedule_strategy = schedule_results.get('schedule_strategy', {})
+            self._print_schedule_strategy(schedule_strategy)
+            
+            # 更新可视化界面
+            self.vis_tab.set_schedule_results(schedule_results)
+            
+            # 自动选择调度优化结果数据类型并显示
+            self.vis_tab.data_type_combo.setCurrentText("调度优化结果")
+            self.vis_tab.on_data_type_changed()
+            
+            # 存储调度优化结果到数据管理器
+            self.data_manager.store_multi_reservoir_results({'schedule_results': schedule_results})
+            
+            # 获取参数用于报告
+            objectives = self.schedule_tab.get_objectives()
+            params = self.schedule_tab.get_all_params()
+            
+            # 生成并显示调度优化报告
+            self.chat_widget.show_schedule_optimization_report(objectives, params, schedule_results)
+            
+        except Exception as e:
+            print(f"处理调度优化结果时出错: {e}")
+    
+    def _on_compute_error(self, error_type: str, error_message: str):
+        """处理计算错误"""
+        print(f"计算错误 ({error_type}): {error_message}")
+        
+        # 显示错误消息框
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.critical(
+            self, 
+            "计算错误", 
+            f"计算过程中发生错误:\n\n类型: {error_type}\n消息: {error_message}"
+        )
+    
+    def _on_task_finished(self):
+        """处理任务完成"""
+        self._set_header_running(False)
+        self._progress_timer.stop()
+        self._current_task_type = None
+        print("计算任务完成")
+    
+    def _update_progress_display(self):
+        """更新进度显示（定时器回调）"""
+        # 这里可以添加更详细的进度显示逻辑
+        # 目前主要依赖信号回调来更新进度
+        pass
+    
+    def cancel_current_computation(self):
+        """取消当前计算任务"""
+        if self.compute_thread.is_busy():
+            reply = QMessageBox.question(
+                self,
+                "确认取消",
+                "确定要取消当前正在运行的计算任务吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.compute_thread.cancel_current_task()
+                print("用户取消了计算任务")
+                # 注意：实际的取消逻辑在计算线程中处理
+        else:
+            print("当前没有正在运行的计算任务")
 
     def export_results_to_csv(self):
         """
