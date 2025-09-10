@@ -29,7 +29,7 @@
     "base_url": "https://api.minimax.chat"
   },
   "DeepSeek": {
-    "api_key": "sk-d1235bda1cdd4d05877a18053abe3eab",
+    "api_key": "",
     "base_url": "https://api.deepseek.com"
   },
   "硅基流动": {
