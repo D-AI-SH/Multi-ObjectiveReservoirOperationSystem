@@ -76,7 +76,16 @@ def prepare_build():
     
     # 清理API密钥
     print("清理API密钥...")
-    subprocess.run([sys.executable, 'clean_api_keys.py'], check=True)
+    try:
+        result = subprocess.run([sys.executable, 'clean_api_keys.py'], 
+                              check=True, capture_output=True, text=True)
+        print("API密钥清理成功")
+    except subprocess.CalledProcessError as e:
+        print(f"API密钥清理失败: {e}")
+        print(f"错误输出: {e.stderr}")
+        return False
+    except FileNotFoundError:
+        print("警告: clean_api_keys.py 文件不存在，跳过API密钥清理")
     
     # 检查必要文件
     required_files = [
@@ -89,6 +98,8 @@ def prepare_build():
         if not os.path.exists(file_path):
             print(f"错误: 缺少必要文件 {file_path}")
             return False
+        else:
+            print(f"✓ 找到文件: {file_path}")
     
     return True
 
@@ -107,12 +118,17 @@ def build_executable():
     print(f"执行命令: {' '.join(cmd)}")
     
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # 不捕获输出，让用户看到实时进度
+        result = subprocess.run(cmd, check=True)
         print("构建成功!")
         return True
     except subprocess.CalledProcessError as e:
         print(f"构建失败: {e}")
-        print(f"错误输出: {e.stderr}")
+        print(f"返回码: {e.returncode}")
+        return False
+    except FileNotFoundError:
+        print("错误: 找不到 pyinstaller 命令")
+        print("请确保已安装 PyInstaller: pip install pyinstaller")
         return False
 
 def post_build_cleanup():
@@ -121,7 +137,14 @@ def post_build_cleanup():
     
     # 恢复API密钥
     print("恢复API密钥...")
-    subprocess.run([sys.executable, 'clean_api_keys.py', 'restore'], check=True)
+    try:
+        subprocess.run([sys.executable, 'clean_api_keys.py', 'restore'], 
+                      check=True, capture_output=True, text=True)
+        print("API密钥恢复成功")
+    except subprocess.CalledProcessError as e:
+        print(f"API密钥恢复失败: {e}")
+    except FileNotFoundError:
+        print("警告: clean_api_keys.py 文件不存在，跳过API密钥恢复")
     
     # 清理临时文件
     temp_files = ['clean_api_keys.py', 'build_config.spec', 'version_info.txt']
@@ -136,41 +159,65 @@ def main():
     print("多目标水库调度系统打包工具")
     print("=" * 60)
     
-    # 检查环境
-    if not check_environment():
-        print("环境检查失败，退出打包")
+    try:
+        # 检查环境
+        print("\n步骤 1: 检查环境")
+        if not check_environment():
+            print("❌ 环境检查失败，退出打包")
+            return False
+        print("✅ 环境检查通过")
+        
+        # 清理构建目录
+        print("\n步骤 2: 清理构建目录")
+        clean_build_dirs()
+        print("✅ 构建目录清理完成")
+        
+        # 准备构建
+        print("\n步骤 3: 准备构建环境")
+        if not prepare_build():
+            print("❌ 构建准备失败，退出打包")
+            return False
+        print("✅ 构建环境准备完成")
+        
+        # 构建可执行文件
+        print("\n步骤 4: 构建可执行文件")
+        if not build_executable():
+            print("❌ 构建失败")
+            return False
+        print("✅ 可执行文件构建完成")
+        
+        # 构建后清理
+        print("\n步骤 5: 构建后清理")
+        post_build_cleanup()
+        print("✅ 构建后清理完成")
+        
+        print("\n" + "=" * 60)
+        print("🎉 打包完成!")
+        print("可执行文件位置: dist/多目标水库调度系统.exe")
+        print("=" * 60)
+        
+        return True
+        
+    except Exception as e:
+        print(f"\n❌ 打包过程中发生未预期的错误: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    # 清理构建目录
-    clean_build_dirs()
-    
-    # 准备构建
-    if not prepare_build():
-        print("构建准备失败，退出打包")
-        return False
-    
-    # 构建可执行文件
-    if not build_executable():
-        print("构建失败")
-        return False
-    
-    # 构建后清理
-    post_build_cleanup()
-    
-    print("=" * 60)
-    print("打包完成!")
-    print("可执行文件位置: dist/多目标水库调度系统.exe")
-    print("=" * 60)
-    
-    return True
 
 if __name__ == "__main__":
     try:
         success = main()
-        sys.exit(0 if success else 1)
+        if success:
+            print("\n✅ 打包成功完成!")
+            sys.exit(0)
+        else:
+            print("\n❌ 打包失败!")
+            sys.exit(1)
     except KeyboardInterrupt:
-        print("\n用户中断打包")
+        print("\n⚠️ 用户中断打包")
         sys.exit(1)
     except Exception as e:
-        print(f"打包过程中发生错误: {e}")
+        print(f"\n❌ 打包过程中发生严重错误: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

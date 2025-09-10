@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 # 获取项目根目录
-project_root = Path(__file__).parent.absolute()
+project_root = Path(os.getcwd()).absolute()
 
 # 数据文件收集
 datas = [
