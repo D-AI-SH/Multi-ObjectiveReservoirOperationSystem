@@ -1,0 +1,14 @@
+{
+  "algorithm": "NSGA-II",
+  "population_size": 100,
+  "generations": 50,
+  "objectives": [
+    "reliability",
+    "efficiency",
+    "stability"
+  ],
+  "constraints": [
+    "min_level",
+    "max_level"
+  ]
+}

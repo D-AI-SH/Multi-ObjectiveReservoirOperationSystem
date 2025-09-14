@@ -1,0 +1,803 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat Renderer</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Microsoft YaHei", sans-serif; background: #FFFFFF; color: #333333; }
+    #app { height: 100vh; display: flex; flex-direction: column; }
+    .messages { flex: 1; overflow: auto; padding: 12px 16px 24px; }
+    .msg { margin: 10px 0; }
+    .role { opacity: 0.7; font-size: 12px; margin-bottom: 6px; color: #666666; }
+    .bubble { background: #F8F9FA; border: 1px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 12px 14px; line-height: 1.45; white-space: normal; }
+    .bubble p { margin: 0.35em 0; }
+    .bubble li { margin: 0.2em 0; }
+    /* KaTeX 数学公式样式 */
+    .katex { font-size: 1.1em; color: #333333; }
+    .katex-display { margin: 0.8em 0; text-align: center; }
+    .katex-display .katex { font-size: 1.2em; }
+    .katex-error { color: #cc0000; }
+    /* 兼容旧的MathJax样式 */
+    .mjx-container { line-height: 1.1; }
+    .mjx-container[display="true"] { margin: 0.6em 0; }
+    .bubble :is(h1,h2,h3,h4,h5,h6) { margin: 0.6em 0 0.4em; color: #333333; }
+    .bubble code { background: rgba(0,0,0,0.08); padding: 2px 4px; border-radius: 4px; color: #2D3748; }
+    .bubble pre code { display: block; padding: 12px; overflow: auto; background: #F1F3F4; }
+    .bubble ul { padding-left: 22px; }
+    .bubble table { border-collapse: collapse; }
+    .bubble table td, .bubble table th { border: 1px solid rgba(0,0,0,0.15); padding: 6px 8px; }
+    .mermaid { background: #F8F9FA; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px; }
+    .thinking { color: #6B7280; font-size: 12px; }
+    /* 强调色样式 */
+    .accent-blue { color: #3A6FE2; }
+    .accent-orange { color: #FF6B35; }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+  <!-- CommonMark/GFM 实现：markdown-it + gfm 插件（离线降级容错） -->
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-gfm@0.1.7/markdown-it-gfm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js"></script>
+  <!-- 让 markdown-it 识别并保护 $...$ / $$...$$ 数学片段，避免在其中解析 _ * 等符号 -->
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-mathjax3@4.3.2/dist/markdown-it-mathjax3.min.js"></script>
+  <script>
+    (function(){
+      function esc(s){
+        return String(s)
+          .replace(/&/g,'&amp;')
+          .replace(/</g,'&lt;')
+          .replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;')
+          .replace(/'/g,'&#039;');
+      }
+      var safeHljs = (window.hljs && typeof window.hljs.highlightAuto === 'function') ? window.hljs : {
+        getLanguage: function(){ return false; },
+        highlight: function(code){ return { value: esc(code) }; },
+        highlightAuto: function(code){ return { value: esc(code) }; }
+      };
+      window.hljs = safeHljs;
+
+      var mdImpl = null;
+      try {
+        if (window.markdownit) {
+          mdImpl = window.markdownit({
+            html: false,
+            linkify: true,
+            typographer: true,
+            breaks: true,
+            highlight: function (code, lang) {
+              try {
+                if (lang && window.hljs.getLanguage && window.hljs.getLanguage(lang)) {
+                  return window.hljs.highlight(code, { language: lang }).value;
+                }
+                return window.hljs.highlightAuto(code).value;
+              } catch (e) {
+                try { return window.hljs.highlightAuto(code).value; } catch { return esc(code); }
+              }
+            }
+          });
+          if (window.markdownitGfm) mdImpl = mdImpl.use(window.markdownitGfm);
+          if (window.markdownitFootnote) mdImpl = mdImpl.use(window.markdownitFootnote);
+          // 数学插件（浏览器全局名可能是 markdownitMathjax3 或 mathjax3）
+          try {
+            if (window.markdownitMathjax3) {
+              // 配置 markdown-it-mathjax3 使用 KaTeX
+              const mathjax3Plugin = window.markdownitMathjax3;
+              mdImpl = mdImpl.use(mathjax3Plugin, {
+                engine: 'katex',
+                delimiters: 'dollars',
+                katexOptions: {
+                  throwOnError: false,
+                  errorColor: '#cc0000',
+                  macros: {
+                    "\\RR": "\\mathbb{R}",
+                    "\\NN": "\\mathbb{N}",
+                    "\\ZZ": "\\mathbb{Z}",
+                    "\\QQ": "\\mathbb{Q}",
+                    "\\CC": "\\mathbb{C}"
+                  }
+                }
+              });
+            } else if (window.mathjax3) mdImpl = mdImpl.use(window.mathjax3);
+          } catch(e) {}
+        }
+      } catch(e) {}
+
+      if (!mdImpl) {
+        // Minimal fallback Markdown renderer (headings, lists, code fences, inline)
+        function basicMarkdownRender(raw){
+          try {
+            let s = String(raw || '');
+            s = s.replace(/\r\n?/g, '\n');
+
+            // Extract fenced code blocks to placeholders first
+            const codeBlocks = [];
+            s = s.replace(/(^|\n)```\s*([A-Za-z0-9_+-]*)\s*\n([\s\S]*?)\n```/g, function(match, pfx, lang, body){
+              const id = codeBlocks.length;
+              codeBlocks.push({ lang: lang || '', body: body });
+              return `${pfx}[[[CODE_BLOCK_${id}]]]`;
+            });
+
+            // Extract TeX math to placeholders to avoid italic/bold parsing inside
+            const mathBlocks = [];
+            // display math $$...$$ (non-greedy)
+            s = s.replace(/\$\$([\s\S]*?)\$\$/g, function(_m, body){
+              const id = mathBlocks.length; mathBlocks.push('$$' + String(body) + '$$');
+              return `[[[MATH_BLOCK_${id}]]]`;
+            });
+            // inline math $...$ (avoid $$ and escaped \$)
+            s = s.replace(/(^|[^$\\])\$([\s\S]*?)\$(?!\$)/g, function(_m, pfx, body){
+              const id = mathBlocks.length; mathBlocks.push('$' + String(body) + '$');
+              return `${pfx}[[[MATH_BLOCK_${id}]]]`;
+            });
+
+            // Escape remaining HTML
+            s = esc(s);
+
+            // Links: [text](url)
+            s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+
+            // Headings # .. ######
+            s = s.replace(/^(#{1,6})\s+(.+)$/gm, function(m, hashes, title){
+              const level = Math.min(6, hashes.length);
+              return `<h${level}>${title}</h${level}>`;
+            });
+
+            // Ordered lists
+            s = s.replace(/(^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, function(m, pfx, block){
+              const items = block.trim().split(/\n/).map(function(line){
+                return line.replace(/^\s*\d+\.\s+/, '');
+              }).map(function(t){ return `<li>${t}</li>`; }).join('');
+              return `${pfx}<ol>${items}</ol>`;
+            });
+
+            // Unordered lists
+            s = s.replace(/(^|\n)((?:\s*[-*+]\s+.+\n?)+)/g, function(m, pfx, block){
+              const items = block.trim().split(/\n/).map(function(line){
+                return line.replace(/^\s*[-*+]\s+/, '');
+              }).map(function(t){ return `<li>${t}</li>`; }).join('');
+              return `${pfx}<ul>${items}</ul>`;
+            });
+
+            // Inline code
+            s = s.replace(/`([^`]+)`/g, function(m, code){ return `<code>${code}</code>`; });
+
+            // Bold and italic (basic)
+            s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+            s = s.replace(/\*(?!\*)([^*]+)\*/g, '<em>$1</em>');
+            s = s.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+            // Paragraphs: split on blank lines, wrap simple text blocks
+            s = s.split(/\n{2,}/).map(function(block){ return block.trim(); })
+              .filter(function(block){ return block.length > 0; })
+              .map(function(block){
+                if (/^<(h\d|ul|ol|pre|blockquote)/i.test(block)) return block;
+                return `<p>${block.replace(/\n/g,'<br>')}</p>`;
+              }).join('\n');
+
+            // Restore code blocks
+            s = s.replace(/\[\[\[CODE_BLOCK_(\d+)\]\]\]/g, function(m, idxStr){
+              const b = codeBlocks[Number(idxStr)] || { lang: '', body: '' };
+              const code = esc(b.body);
+              const cls = b.lang ? ` class="language-${b.lang}"` : '';
+              // highlight.js will try to enhance later
+              return `<pre><code${cls}>${code}</code></pre>`;
+            });
+
+            // Restore math blocks (kept raw so MathJax can typeset later)
+            s = s.replace(/\[\[\[MATH_BLOCK_(\d+)\]\]\]/g, function(_m, idxStr){
+              const tex = mathBlocks[Number(idxStr)] || '';
+              return tex;
+            });
+
+            return s;
+          } catch (e) {
+            try { console.warn('[chat_renderer] basicMarkdownRender error', e); } catch {}
+            return '<pre style="white-space: pre-wrap; margin:0;">' + esc(raw) + '</pre>';
+          }
+        }
+        mdImpl = { render: basicMarkdownRender };
+      }
+      window.__md = mdImpl;
+    })();
+  </script>
+  <script>
+    // 动态加载 markdown-it 及其插件（本地优先 + 多源回退）。若外链失败，仍可升级到真正的 Markdown 渲染。
+    (function(){
+      let mdLoadPromise = null;
+      const sourceGroups = [
+        // 本地优先（如需离线，请将文件放到这些位置）
+        ['uiLAYER/assets/markdown-it.min.js','uiLAYER/assets/markdown-it-gfm.min.js','uiLAYER/assets/markdown-it-footnote.min.js','uiLAYER/assets/markdown-it-mathjax3.min.js'],
+        ['./markdown-it.min.js','./markdown-it-gfm.min.js','./markdown-it-footnote.min.js','./markdown-it-mathjax3.min.js'],
+        ['./vendor/markdown-it.min.js','./vendor/markdown-it-gfm.min.js','./vendor/markdown-it-footnote.min.js','./vendor/markdown-it-mathjax3.min.js'],
+        // CDN 回退
+        ['https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js','https://cdn.jsdelivr.net/npm/markdown-it-gfm@0.1.7/markdown-it-gfm.min.js','https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js','https://cdn.jsdelivr.net/npm/markdown-it-mathjax3@4.3.2/dist/markdown-it-mathjax3.min.js'],
+        ['https://unpkg.com/markdown-it@13.0.2/dist/markdown-it.min.js','https://unpkg.com/markdown-it-gfm@0.1.7/dist/markdown-it-gfm.min.js','https://unpkg.com/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js','https://unpkg.com/markdown-it-mathjax3@4.3.2/dist/markdown-it-mathjax3.min.js'],
+        ['https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js','https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/plugins/gfm/markdown-it-gfm.min.js','https://cdnjs.cloudflare.com/ajax/libs/markdown-it-footnote/3.0.3/markdown-it-footnote.min.js','https://cdnjs.cloudflare.com/ajax/libs/markdown-it-mathjax3/4.3.2/markdown-it-mathjax3.min.js'],
+        ['https://cdn.bootcdn.net/ajax/libs/markdown-it/13.0.2/markdown-it.min.js','https://cdn.bootcdn.net/ajax/libs/markdown-it-gfm/0.1.7/markdown-it-gfm.min.js','https://cdn.bootcdn.net/ajax/libs/markdown-it-footnote/3.0.3/markdown-it-footnote.min.js','https://cdn.bootcdn.net/ajax/libs/markdown-it-mathjax3/4.3.2/markdown-it-mathjax3.min.js']
+      ];
+      function loadScript(url){
+        return new Promise((resolve,reject)=>{
+          const s=document.createElement('script'); s.src=url; s.async=true;
+          s.onload=()=>resolve(url); s.onerror=()=>reject(new Error('load fail: '+url));
+          document.head.appendChild(s);
+        });
+      }
+      function ensure(){
+        if (window.markdownit && window.__md && typeof window.__md.render==='function') return Promise.resolve(window.__md);
+        if (mdLoadPromise) return mdLoadPromise;
+        mdLoadPromise=(async()=>{
+          for (const group of sourceGroups){
+            try {
+              try { console.info('[chat_renderer] MarkdownLoader: trying group', group); } catch {}
+              let anyLoaded = false;
+              for (const u of group){
+                try { await loadScript(u); anyLoaded = true; }
+                catch(e){ try { console.warn('[chat_renderer] MarkdownLoader: script failed', u); } catch {} }
+              }
+              if (window.markdownit){
+                let impl = window.markdownit({ html:false, linkify:true, typographer:true, breaks:true,
+                  highlight: function(code,lang){ try{ if(lang && window.hljs.getLanguage && window.hljs.getLanguage(lang)){ return window.hljs.highlight(code,{language:lang}).value; } return window.hljs.highlightAuto(code).value; } catch(e){ try{ return window.hljs.highlightAuto(code).value; } catch{ return code; } } }
+                });
+                try { if (window.markdownitGfm) impl = impl.use(window.markdownitGfm); else console.info('[chat_renderer] MarkdownLoader: GFM plugin missing'); } catch {}
+                try { if (window.markdownitFootnote) impl = impl.use(window.markdownitFootnote); else console.info('[chat_renderer] MarkdownLoader: footnote plugin missing'); } catch {}
+                try {
+                  if (window.markdownitMathjax3) impl = impl.use(window.markdownitMathjax3);
+                  else if (window.mathjax3) impl = impl.use(window.mathjax3);
+                  else console.info('[chat_renderer] MarkdownLoader: mathjax3 plugin missing');
+                } catch {}
+                window.__md = impl;
+                try { console.info('[chat_renderer] MarkdownLoader: loaded'); } catch {}
+                return impl;
+              }
+              if (!anyLoaded) { throw new Error('group load failed'); }
+            } catch (e) { try { console.warn('[chat_renderer] MarkdownLoader: group failed', e); } catch {} }
+          }
+          return window.__md;
+        })();
+        return mdLoadPromise;
+      }
+      window.MarkdownLoader = { ensure };
+    })();
+  </script>
+  <script>
+    // 使用 KaTeX 替代 MathJax，更轻量、更快、支持离线
+    window.KaTeX = {
+      // KaTeX 配置
+      options: {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false,
+        errorColor: '#cc0000',
+        macros: {
+          "\\RR": "\\mathbb{R}",
+          "\\NN": "\\mathbb{N}",
+          "\\ZZ": "\\mathbb{Z}",
+          "\\QQ": "\\mathbb{Q}",
+          "\\CC": "\\mathbb{C}"
+        }
+      },
+      // KaTeX 渲染函数
+      render: function(container, options) {
+        if (!window.katex) {
+          console.warn('[KaTeX] katex.min.js not loaded');
+          return;
+        }
+        
+        const katexOptions = options || {};
+        const renderOptions = {
+          throwOnError: katexOptions.throwOnError !== undefined ? katexOptions.throwOnError : this.options.throwOnError,
+          errorColor: katexOptions.errorColor || this.options.errorColor,
+          macros: katexOptions.macros || this.options.macros,
+          displayMode: katexOptions.displayMode !== undefined ? katexOptions.displayMode : false,
+          strict: katexOptions.strict !== undefined ? katexOptions.strict : true,
+          trust: katexOptions.trust !== undefined ? katexOptions.trust : false
+        };
+
+        // 查找所有数学公式并渲染
+        const mathElements = container.querySelectorAll('.math, .math-display, .math-inline');
+        mathElements.forEach(element => {
+          try {
+            const tex = element.textContent || element.innerText;
+            if (tex) {
+              const isDisplay = element.classList.contains('math-display') || 
+                               element.classList.contains('math') && tex.includes('$$');
+              window.katex.render(tex, element, {
+                ...renderOptions,
+                displayMode: isDisplay
+              });
+            }
+          } catch (e) {
+            console.error('[KaTeX] Error rendering math element:', e);
+            element.style.color = renderOptions.errorColor;
+            element.textContent = element.textContent + ' [渲染错误]';
+          }
+        });
+
+        // 处理行内和块级数学公式
+        const inlineMath = container.querySelectorAll('span:contains("$")');
+        const displayMath = container.querySelectorAll('div:contains("$$")');
+        
+        // 这里可以添加更复杂的数学公式检测和渲染逻辑
+        // 由于markdown-it-mathjax3插件已经处理了大部分情况，这里主要是兜底
+      }
+    };
+
+    // KaTeX 自动渲染函数
+    function renderMathInElement(element, options) {
+      if (!window.katex) {
+        console.warn('[KaTeX] katex.min.js not loaded');
+        return;
+      }
+      
+      const defaultOptions = {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false,
+        errorColor: '#cc0000'
+      };
+      
+      const finalOptions = { ...defaultOptions, ...options };
+      
+      try {
+        if (window.renderMathInElement) {
+          window.renderMathInElement(element, finalOptions);
+        } else {
+          // 手动实现简单的数学公式渲染
+          const text = element.textContent || '';
+          const delimiters = finalOptions.delimiters;
+          
+          delimiters.forEach(delimiter => {
+            const regex = new RegExp(
+              '\\' + delimiter.left.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + 
+              '([\\s\\S]*?)' + 
+              '\\' + delimiter.right.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 
+              'g'
+            );
+            
+            text.replace(regex, (match, tex) => {
+              try {
+                const span = document.createElement('span');
+                span.className = delimiter.display ? 'math-display' : 'math-inline';
+                window.katex.render(tex, span, {
+                  displayMode: delimiter.display,
+                  throwOnError: finalOptions.throwOnError,
+                  errorColor: finalOptions.errorColor
+                });
+                // 这里需要更复杂的替换逻辑
+              } catch (e) {
+                console.error('[KaTeX] Error rendering math:', e);
+              }
+            });
+          });
+        }
+      } catch (e) {
+        console.error('[KaTeX] renderMathInElement error:', e);
+      }
+    }
+    
+    // 将自动渲染函数添加到KaTeX对象
+    window.KaTeX.renderMathInElement = renderMathInElement;
+  </script>
+  <!-- KaTeX CSS 和 JS -->
+  <link rel="stylesheet" href="./katex.min.css">
+  <script src="./katex.min.js"></script>
+  <script src="./katex-auto-render.min.js"></script>
+  <script>
+    // 动态加载 mermaid，多 CDN 兜底，避免断网或地域限制导致不可用
+    (function(){
+      let initDone = false;
+      let loadPromise = null;
+      const sources = [
+        // 优先尝试本地路径（请将 mermaid.min.js 放到 uiLAYER/assets/ 目录）
+        (window.__MERMAID_LOCAL_URL || './mermaid.min.js'),
+        './vendor/mermaid.min.js',
+        '../vendor/mermaid.min.js',
+        // 然后回退到各大 CDN
+        'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+        'https://unpkg.com/mermaid@10/dist/mermaid.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.0/mermaid.min.js',
+        'https://cdn.bootcdn.net/ajax/libs/mermaid/10.9.0/mermaid.min.js'
+      ];
+      function tryLoadAt(index, resolve, reject){
+        if (window.mermaid) { resolve(window.mermaid); return; }
+        if (index >= sources.length) { reject(new Error('All Mermaid sources failed')); return; }
+        const url = sources[index];
+        try { console.info('[chat_renderer] MermaidLoader: load', url); } catch {}
+        const s = document.createElement('script');
+        s.src = url;
+        s.async = true;
+        s.onload = function(){
+          if (window.mermaid) { resolve(window.mermaid); }
+          else { tryLoadAt(index + 1, resolve, reject); }
+        };
+        s.onerror = function(){ tryLoadAt(index + 1, resolve, reject); };
+        document.head.appendChild(s);
+      }
+      function ensure(){
+        if (window.mermaid) return Promise.resolve(window.mermaid);
+        if (loadPromise) return loadPromise;
+        loadPromise = new Promise((resolve, reject) => tryLoadAt(0, resolve, reject))
+          .catch((e) => { loadPromise = null; throw e; });
+        return loadPromise;
+      }
+      function renderAll(root){
+        try {
+          if (!window.mermaid) return;
+          if (!initDone) {
+            try { window.mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch {}
+            initDone = true;
+          }
+          const scope = root ? root : document;
+          const nodes = Array.from(scope.querySelectorAll('.mermaid'));
+          // 预校验 mermaid 语法：失败则降级为代码块，避免炸弹图标
+          const checks = nodes.map((el) => {
+            const raw = (el.textContent || '').trim();
+            // 跳过空内容
+            if (!raw) return Promise.resolve(true);
+            try {
+              const p = window.mermaid.parse(raw);
+              const prom = (p && typeof p.then === 'function') ? p : Promise.resolve(true);
+              return prom.then(() => true).catch(() => {
+                const pre = document.createElement('pre');
+                const code = document.createElement('code');
+                code.className = 'language-mermaid';
+                code.textContent = raw;
+                pre.appendChild(code);
+                try { el.replaceWith(pre); } catch {}
+                return false;
+              });
+            } catch {
+              const pre = document.createElement('pre');
+              const code = document.createElement('code');
+              code.className = 'language-mermaid';
+              code.textContent = raw;
+              pre.appendChild(code);
+              try { el.replaceWith(pre); } catch {}
+              return Promise.resolve(false);
+            }
+          });
+          Promise.all(checks).then(() => {
+            try {
+              const okNodes = scope.querySelectorAll('.mermaid');
+              window.mermaid.run({ nodes: okNodes });
+            } catch (e) { console.warn('[chat_renderer] mermaid run failed', e); }
+          });
+        } catch (e) { console.error('[chat_renderer] mermaid renderAll error', e); }
+      }
+      window.MermaidLoader = { ensure, renderAll, sources };
+    })();
+  </script>
+</head>
+<body>
+  <div id="app">
+    <div id="messages" class="messages"></div>
+  </div>
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const getMd = () => window.__md; // 可能被 MarkdownLoader 动态升级
+    const messagesEl = $('#messages');
+
+    const scrollToBottom = () => { messagesEl.scrollTop = messagesEl.scrollHeight; };
+
+    const preprocessMarkdown = (text) => {
+      // 全局“去壳”：移除任意位置的 ```markdown/```md 围栏，保留其内部内容
+      // 这样即使在围栏后还跟有其他文本，也不会阻碍内部 mermaid/标题渲染
+      if (!text) return '';
+      let s = String(text);
+      const pattern = /```(?:markdown|md)\s*\r?\n([\s\S]*?)\r?\n```/gi;
+      let prev;
+      do {
+        prev = s;
+        s = s.replace(pattern, '$1');
+      } while (s !== prev);
+      try { console.debug('[chat_renderer] preprocessMarkdown done. length:', s.length); } catch {}
+      return s;
+    };
+
+    // 提前抽取 mermaid 代码围栏，放入占位符，防止解析器/高亮器遗漏 class
+    // 支持 ```mermaid 或 ~~~mermaid，支持 ``` mermaid 格式及行尾附加文本
+    const extractMermaidFences = (text) => {
+      const blocks = [];
+      if (!text) return { text: '', blocks };
+      let s = String(text);
+
+      // 统一换行，便于正则匹配
+      s = s.replace(/\r\n?/g, '\n');
+
+      // 连续提取所有 mermaid 围栏
+      const opener = /(^|\n)(```|~~~)\s*mermaid[^\n]*\n([\s\S]*?)(\n\2)(?=\s|\S)/gi;
+      // 说明：非贪婪匹配到下一个相同类型的围栏符（``` 或 ~~~），不要求行末纯空白
+
+      s = s.replace(opener, (match, pfx, fence, body) => {
+        const id = blocks.length;
+        blocks.push(String(body).replace(/\n+$/, ''));
+        return `${pfx}[[[MERMAID_BLOCK_${id}]]]`;
+      });
+
+      // 补充：识别未加围栏的“裸 mermaid”段落
+      // 形式一：\nmermaid\n(body...) 直到空行/标题/列表/代码围栏/文末
+      const looseRe = /(^|\n)mermaid\s*\n([\s\S]*?)(?=\n#{1,6}\s|\n>\s|\n[-*+]\s|\n`{3,}|\n~{3,}|$)/gi;
+      s = s.replace(looseRe, (match, pfx, body) => {
+        const id = blocks.length;
+        blocks.push(String(body).replace(/\n+$/, ''));
+        return `${pfx}[[[MERMAID_BLOCK_${id}]]]`;
+      });
+
+      // 形式二：直接以 graph/flowchart/sequenceDiagram/classDiagram 等开头的裸图
+      const starters = '(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|gitGraph|mindmap|timeline|pie)';
+      const bareDiag = new RegExp(`(^|\\n)(${starters})[\\s\\S]*?(?=\\n#{1,6}\\s|\\n>\\s|\\n[-*+]\\s|\\n` + '{3,}' + `|\\n~{3,}|$)`, 'gi');
+      s = s.replace(bareDiag, (match, pfx) => {
+        const id = blocks.length;
+        const body = match.slice(pfx.length);
+        blocks.push(String(body).replace(/\n+$/, ''));
+        return `${pfx}[[[MERMAID_BLOCK_${id}]]]`;
+      });
+
+      try { console.debug('[chat_renderer] extractMermaidFences blocks:', blocks.length); } catch {}
+
+      return { text: s, blocks };
+    };
+
+    // 提前抽取 LaTeX 数学表达（行间/行内），避免在 Markdown 中被强调/斜体误解析
+    const extractMathPlaceholders = (text) => {
+      const maths = [];
+      if (!text) return { text: '', maths };
+      let s = String(text);
+      // 统一换行
+      s = s.replace(/\r\n?/g, '\n');
+      // 行间 $$...$$（非贪婪）
+      s = s.replace(/\$\$([\s\S]*?)\$\$/g, (m, body) => {
+        const id = maths.length; maths.push('$$' + String(body) + '$$');
+        return `[[[MATH_BLOCK_${id}]]]`;
+      });
+      // 行内 $...$：避免匹配到 $$，避免转义 \$
+      s = s.replace(/(^|[^$\\])\$([^$\n][\s\S]*?)\$(?!\$)/g, (m, pfx, body) => {
+        const id = maths.length; maths.push('$' + String(body) + '$');
+        return `${pfx}[[[MATH_BLOCK_${id}]]]`;
+      });
+      return { text: s, maths };
+    };
+
+    // 将占位符恢复为原始 TeX 文本（供 KaTeX 后续渲染）
+    const restoreMathPlaceholders = (html, maths) => {
+      if (!html || !Array.isArray(maths) || maths.length === 0) return html || '';
+      return String(html).replace(/\[\[\[MATH_BLOCK_(\d+)\]\]\]/g, (m, idxStr) => {
+        const tex = maths[Number(idxStr)] ?? '';
+        return tex;
+      });
+    };
+
+    const escapeHtml = (unsafe) => {
+      return String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+
+    const renderBubble = (raw, isMarkdown) => {
+      const original = String(raw || '');
+      try { console.debug('[chat_renderer] renderBubble start. isMarkdown:', !!isMarkdown, 'len:', original.length); } catch {}
+      const afterPre = preprocessMarkdown(original);
+      const { text: withoutMermaid, blocks: mermaidBlocks } = extractMermaidFences(afterPre);
+      const { text: withoutMath, maths: mathBlocks } = extractMathPlaceholders(withoutMermaid);
+      const container = document.createElement('div');
+      container.className = 'bubble markdown-body';
+
+      if (isMarkdown && /^思考：/.test(withoutMath)) {
+        // 将“思考：…\n答案：…”分段渲染，思考部分变小变灰
+        const match = withoutMath.match(/(^思考：[\s\S]*?)(?:\n+|\r+)(?=答案：)/);
+        if (match) {
+          const thinkingPart = match[1];
+          const answerPart = withoutMath.slice(thinkingPart.length).replace(/^\s+/, '');
+
+          const thinkingWrap = document.createElement('div');
+          thinkingWrap.className = 'thinking';
+          thinkingWrap.innerHTML = restoreMathPlaceholders(getMd().render(preprocessMarkdown(thinkingPart)), mathBlocks);
+          container.appendChild(thinkingWrap);
+
+          const answerWrap = document.createElement('div');
+          answerWrap.innerHTML = restoreMathPlaceholders(getMd().render(preprocessMarkdown(answerPart)), mathBlocks);
+          container.appendChild(answerWrap);
+        } else {
+          container.innerHTML = restoreMathPlaceholders(getMd().render(preprocessMarkdown(withoutMath)), mathBlocks);
+        }
+      } else if (isMarkdown) {
+        container.innerHTML = restoreMathPlaceholders(getMd().render(preprocessMarkdown(withoutMath)), mathBlocks);
+      } else {
+        container.innerHTML = `<pre style="white-space: pre-wrap; margin: 0;">${escapeHtml(afterPre)}</pre>`;
+      }
+
+      // 写回占位符为实际 mermaid 容器
+      if (mermaidBlocks.length > 0) {
+        // 将占位符替换为 div.mermaid
+        const html = container.innerHTML;
+        const replaced = html.replace(/\[\[\[MERMAID_BLOCK_(\d+)\]\]\]/g, (m, idxStr) => {
+          const idx = Number(idxStr);
+          const code = (mermaidBlocks[idx] ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return `<div class="mermaid">${code}</div>`;
+        });
+        container.innerHTML = replaced;
+        try { console.debug('[chat_renderer] mermaid placeholders applied:', mermaidBlocks.length); } catch {}
+      }
+
+      // 兼容直接 ```mermaid 渲染（若仍有未被占位的情况，例如 markdown-it 的代码块识别）
+      container.querySelectorAll('code.language-mermaid').forEach((code) => {
+        const pre = code.parentElement;
+        const div = document.createElement('div');
+        div.className = 'mermaid';
+        div.textContent = code.textContent;
+        pre.replaceWith(div);
+      });
+      try { console.debug('[chat_renderer] renderBubble done.'); } catch {}
+      return container;
+    };
+
+    const renderBlock = (role, content, isMarkdown) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg';
+      const roleEl = document.createElement('div');
+      roleEl.className = 'role';
+      roleEl.textContent = role === 'user' ? ' 用户' : ' 助手';
+      const bubble = renderBubble(content, !!isMarkdown);
+      wrap.appendChild(roleEl);
+      wrap.appendChild(bubble);
+      messagesEl.appendChild(wrap);
+      try {
+        if (window.MermaidLoader) {
+          window.MermaidLoader.ensure()
+            .then(() => { console.debug('[chat_renderer] mermaid ready -> renderAll'); window.MermaidLoader.renderAll(); })
+            .catch((e) => { console.warn('[chat_renderer] mermaid load failed', e); });
+        }
+      } catch (e) { console.error('[chat_renderer] mermaid ensure error', e); }
+      try {
+        if (window.MarkdownLoader) {
+          window.MarkdownLoader.ensure()
+            .then(() => {
+              try { console.debug('[chat_renderer] markdown loaded -> upgrade render'); } catch {}
+              const bubbleNew = renderBubble(content, !!isMarkdown);
+              const bubbleOld = wrap.querySelector('.bubble');
+              if (bubbleOld) bubbleOld.replaceWith(bubbleNew);
+              if (window.MermaidLoader) window.MermaidLoader.renderAll(wrap);
+              try {
+                if (window.KaTeX && window.KaTeX.renderMathInElement) {
+                  console.debug('[chat_renderer] KaTeX renderMathInElement (after markdown upgrade)');
+                  window.KaTeX.renderMathInElement(wrap, window.KaTeX.options);
+                } else if (window.renderMathInElement) {
+                  console.debug('[chat_renderer] KaTeX renderMathInElement (global function)');
+                  window.renderMathInElement(wrap, {
+                    delimiters: [
+                      {left: '$$', right: '$$', display: true},
+                      {left: '$', right: '$', display: false},
+                      {left: '\\(', right: '\\)', display: false},
+                      {left: '\\[', right: '\\]', display: true}
+                    ],
+                    throwOnError: false,
+                    errorColor: '#cc0000'
+                  });
+                }
+              } catch (e) { console.error('[chat_renderer] KaTeX renderMathInElement after markdown upgrade error', e); }
+            })
+            .catch(() => {});
+        }
+      } catch {}
+              try {
+          if (window.KaTeX && window.KaTeX.renderMathInElement) {
+            console.debug('[chat_renderer] KaTeX renderMathInElement');
+            window.KaTeX.renderMathInElement(wrap, window.KaTeX.options);
+          } else if (window.renderMathInElement) {
+            console.debug('[chat_renderer] KaTeX renderMathInElement (global function)');
+            window.renderMathInElement(wrap, {
+              delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+              ],
+              throwOnError: false,
+              errorColor: '#cc0000'
+            });
+          }
+        } catch (e) { console.error('[chat_renderer] KaTeX error', e); }
+      scrollToBottom();
+    };
+
+    let currentBotWrap = null;
+    let currentBotText = '';
+    let currentBotIsMarkdown = true;
+    let rerenderTimer = null;
+
+    const scheduleRerender = () => {
+      if (rerenderTimer) clearTimeout(rerenderTimer);
+      rerenderTimer = setTimeout(() => {
+        if (!currentBotWrap) return;
+        const bubbleOld = currentBotWrap.querySelector('.bubble');
+        const bubbleNew = renderBubble(currentBotText, currentBotIsMarkdown);
+        if (bubbleOld) bubbleOld.replaceWith(bubbleNew); else currentBotWrap.appendChild(bubbleNew);
+        try {
+          if (window.MermaidLoader) {
+            window.MermaidLoader.ensure()
+              .then(() => { console.debug('[chat_renderer] mermaid ready -> renderAll(rerender)'); window.MermaidLoader.renderAll(currentBotWrap); })
+              .catch((e) => { console.warn('[chat_renderer] mermaid load failed (rerender)', e); });
+          }
+        } catch (e) { console.error('[chat_renderer] mermaid rerender ensure error', e); }
+        try {
+          if (window.MarkdownLoader) {
+            window.MarkdownLoader.ensure().catch(()=>{});
+          }
+        } catch {}
+        try {
+          if (window.KaTeX && window.KaTeX.renderMathInElement) {
+            console.debug('[chat_renderer] KaTeX renderMathInElement (rerender)');
+            window.KaTeX.renderMathInElement(currentBotWrap, window.KaTeX.options);
+          } else if (window.renderMathInElement) {
+            console.debug('[chat_renderer] KaTeX renderMathInElement (global function, rerender)');
+            window.renderMathInElement(currentBotWrap, {
+              delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+              ],
+              throwOnError: false,
+              errorColor: '#cc0000'
+            });
+          }
+        } catch (e) { console.error('[chat_renderer] KaTeX rerender error', e); }
+        scrollToBottom();
+      }, 120);
+    };
+
+    window.ChatAPI = {
+      clearMessages() { messagesEl.innerHTML = ''; },
+      addMessage(role, raw, isMarkdown = true) { renderBlock(role, String(raw ?? ''), !!isMarkdown); },
+      startBotMessage(isMarkdown=true) {
+        currentBotWrap = document.createElement('div');
+        currentBotWrap.className = 'msg';
+        const roleEl = document.createElement('div');
+        roleEl.className = 'role';
+        roleEl.textContent = ' 助手';
+        currentBotWrap.appendChild(roleEl);
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = '';
+        currentBotWrap.appendChild(bubble);
+        messagesEl.appendChild(currentBotWrap);
+        currentBotText = '';
+        currentBotIsMarkdown = !!isMarkdown;
+        try {
+          console.info('[chat_renderer] startBotMessage. markdown:', currentBotIsMarkdown,
+            'env:', {
+              markdownit: !!window.markdownit,
+              gfm: !!window.markdownitGfm,
+              footnote: !!window.markdownitFootnote,
+              hljs: !!window.hljs,
+              mermaid: !!window.mermaid,
+              KaTeX: !!window.KaTeX,
+            }
+          );
+        } catch {}
+        scrollToBottom();
+      },
+      appendBotChunk(chunk) {
+        currentBotText += String(chunk ?? '');
+        scheduleRerender();
+      },
+      finalizeBotMessage() { scheduleRerender(); }
+    };
+  </script>
+</body>
+</html>

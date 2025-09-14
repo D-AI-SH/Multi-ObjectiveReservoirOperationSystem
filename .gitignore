@@ -56,3 +56,8 @@ desktop.ini
 
 # 配置文件备份
 *.json.backup
+data/reservoirs/万家寨/蒸发量.xlsx
+data/reservoirs/万家寨/蓄水量变化.xlsx
+data/reservoirs/万家寨/水面积.xlsx
+data/reservoirs/万家寨/气象数据.xlsx
+data/reservoirs/万家寨/流量.xlsx

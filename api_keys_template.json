@@ -1,0 +1,46 @@
+{
+  "OpenAI": {
+    "api_key": "请在此处填入您的OpenAI API密钥",
+    "base_url": "https://api.openai.com"
+  },
+  "百度千帆": {
+    "api_key": "请在此处填入您的百度千帆API密钥",
+    "secret_key": "请在此处填入您的百度千帆Secret密钥",
+    "base_url": "https://qianfan.baidu.com"
+  },
+  "阿里通义": {
+    "api_key": "请在此处填入您的阿里通义API密钥",
+    "base_url": "https://dashscope.aliyuncs.com",
+    "model": "qwen-flash"
+  },
+  "讯飞星火": {
+    "app_id": "请在此处填入您的讯飞星火App ID",
+    "api_key": "请在此处填入您的讯飞星火API密钥",
+    "api_secret": "请在此处填入您的讯飞星火API Secret",
+    "base_url": "https://spark-api.xf-yun.com"
+  },
+  "智谱 ChatGLM": {
+    "api_key": "请在此处填入您的智谱API密钥",
+    "base_url": "https://open.bigmodel.cn"
+  },
+  "MiniMax": {
+    "group_id": "请在此处填入您的MiniMax Group ID",
+    "api_key": "请在此处填入您的MiniMax API密钥",
+    "base_url": "https://api.minimax.chat"
+  },
+  "DeepSeek": {
+    "api_key": "请在此处填入您的DeepSeek API密钥",
+    "base_url": "https://api.deepseek.com"
+  },
+  "硅基流动": {
+    "api_key": "请在此处填入您的硅基流动API密钥",
+    "base_url": "https://platform.ai-siliconflow.com"
+  },
+  "月之暗面": {
+    "api_key": "请在此处填入您的月之暗面API密钥",
+    "base_url": "https://api.moonshot-ai.com"
+  },
+  "_meta": {
+    "current_vendor": "DeepSeek"
+  }
+}

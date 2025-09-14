@@ -1,0 +1,64 @@
+{
+  "_comment": "AI助手性能优化配置文件 - 详细说明",
+  "_comment_usage": "修改此文件中的参数来调整AI助手的性能和响应速度",
+  
+  "performance_settings": {
+    "_comment": "=== 性能优化设置 ===",
+    
+    "enable_fast_mode": false,
+    "_comment_enable_fast_mode": "快速模式：开启后会牺牲一些准确性来换取更快的响应速度",
+    
+    "enable_vector_cache": true,
+    "_comment_enable_vector_cache": "向量缓存：开启后相同或相似的问题会使用缓存，大幅提升响应速度",
+    
+    "max_cache_size": 50,
+    "_comment_max_cache_size": "最大缓存数量：缓存的问题数量上限，建议20-100之间",
+    
+    "vector_search_k": 3,
+    "_comment_vector_search_k": "向量搜索数量：每次搜索返回的最相关文档数量，数值越大越准确但越慢",
+    
+    "similarity_threshold": 0.3,
+    "_comment_similarity_threshold": "相似度阈值：0.0-1.0，数值越大要求越相似，建议0.2-0.5",
+    
+    "enable_performance_monitoring": true,
+    "_comment_enable_performance_monitoring": "性能监控：开启后会在控制台显示响应时间等调试信息",
+    
+    "stream_chunk_size": 5,
+    "_comment_stream_chunk_size": "流式块大小：AI返回的文本按此字符数进行分块显示，数值越小显示越流畅但处理越频繁，建议5-20"
+  },
+  
+  "model_settings": {
+    "_comment": "=== AI模型设置 ===",
+    
+    "temperature": 0.5,
+    "_comment_temperature": "温度参数：0.0-1.0，数值越小回答越确定，数值越大越有创意。建议0.4-0.7以鼓励生成图表",
+    
+    "max_tokens": 4000,
+    "_comment_max_tokens": "最大token数：AI回答的最大长度，数值越大回答越详细但越慢。生成图表需要更多token",
+    
+    "timeout_seconds": 45,
+    "_comment_timeout_seconds": "超时时间：AI响应的最大等待时间，超过后会中断请求。生成图表需要更长时间",
+    
+    "enable_mermaid_generation": true,
+    "_comment_enable_mermaid_generation": "启用Mermaid图表生成：AI会在适当时候生成流程图、时序图等可视化图表"
+  },
+  
+  "ui_settings": {
+    "_comment": "=== 用户界面设置 ===",
+    
+    "show_thinking_animation": true,
+    "_comment_show_thinking_animation": "思考动画：显示AI正在思考的动画效果",
+    
+    "auto_scroll": true,
+    "_comment_auto_scroll": "自动滚动：新消息时自动滚动到底部",
+    
+    "markdown_rendering": true,
+    "_comment_markdown_rendering": "Markdown渲染：支持代码块、表格等富文本格式"
+  },
+  
+  "_comment_tips": "=== 优化建议 ===",
+  "_comment_tip1": "如果响应太慢：开启enable_fast_mode，减少max_tokens，增加similarity_threshold",
+  "_comment_tip2": "如果响应太快但不够准确：关闭enable_fast_mode，增加vector_search_k，减少similarity_threshold",
+  "_comment_tip3": "如果内存占用太高：减少max_cache_size，增加stream_chunk_size",
+  "_comment_tip4": "如果网络不稳定：增加timeout_seconds，减少max_tokens"
+}
