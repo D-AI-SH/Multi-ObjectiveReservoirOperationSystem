@@ -1,0 +1,58 @@
+# 数据文件夹
+数据（与程序无关）/
+
+# 缓存和日志
+.mypy_cache/
+logs/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 模型文件
+models/
+
+# API密钥文件
+config/api_keys.json
+
+# Python虚拟环境
+venv/
+env/
+ENV/
+
+# 打包生成的文件
+dist/
+build/
+*.egg-info/
+*.spec.backup
+
+# IDE和编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+
+# 编译文件
+*.so
+*.dll
+*.dylib
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 配置文件备份
+*.json.backup
