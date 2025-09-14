@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - 回退路径
 from PyQt6.QtCore import pyqtSignal, QObject, QThread, QTimer, QUrl
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 import os
+import sys
 import pickle
 from pathlib import Path
 import json
@@ -527,8 +528,35 @@ class ChatWidget(QWidget):
     # ------------------------------------------------------------------
     # AI 相关：加载向量库 + 调用大模型（支持流式）
     # ------------------------------------------------------------------
-    _INDEX_PATH = "data/manual_faiss.index"
-    _META_PATH = "data/manual_meta.pkl"
+    
+    @staticmethod
+    def _get_resource_path(relative_path):
+        """
+        获取资源文件的真实路径，兼容打包和非打包环境
+        
+        Args:
+            relative_path: 相对于项目根目录的路径
+            
+        Returns:
+            str: 资源文件的绝对路径
+        """
+        try:
+            # PyInstaller打包后的路径
+            base_path = sys._MEIPASS
+        except AttributeError:
+            # 开发环境中的路径
+            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        return os.path.join(base_path, relative_path)
+    
+    @property
+    def _INDEX_PATH(self):
+        return self._get_resource_path("data/manual_faiss.index")
+    
+    @property 
+    def _META_PATH(self):
+        return self._get_resource_path("data/manual_meta.pkl")
+    
     _EMBED_MODEL_NAME = "BAAI/bge-large-zh-v1.5"
 
     def _ensure_retriever(self):
@@ -547,9 +575,9 @@ class ChatWidget(QWidget):
                 raise FileNotFoundError(f"未找到向量库 {self._INDEX_PATH}，请先运行预处理脚本。")
 
             # 索引存在时再加载 embedding 模型（可能较慢），减少首调用等待
-            local_model_dir = Path("models") / "bge-large-zh-v1.5"
-            if local_model_dir.exists():
-                self._embed_model = SentenceTransformer(local_model_dir.as_posix())
+            local_model_path = self._get_resource_path("models/bge-large-zh-v1.5")
+            if Path(local_model_path).exists():
+                self._embed_model = SentenceTransformer(local_model_path)
             else:
                 # 正常按名称加载（可能会访问 huggingface.co）
                 self._embed_model = SentenceTransformer(self._EMBED_MODEL_NAME)
@@ -566,7 +594,7 @@ class ChatWidget(QWidget):
                     GetShortPathNameW = windll.kernel32.GetShortPathNameW
                     GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
                     GetShortPathNameW.restype = wintypes.DWORD
-                    if GetShortPathNameW(self._INDEX_PATH, buffer, 260):
+                    if GetShortPathNameW(str(self._INDEX_PATH), buffer, 260):
                         short_path = buffer.value
                         self._index = faiss.read_index(short_path)
                     else:

@@ -11,6 +11,8 @@ project_root = Path(os.getcwd()).absolute()
 datas = [
     # 数据文件
     (str(project_root / 'data'), 'data'),
+    # 本地模型文件
+    (str(project_root / 'models'), 'models'),
     # 配置文件（不包含API密钥）
     (str(project_root / 'config' / 'data_links_config.json'), 'config'),
     (str(project_root / 'config' / 'saint_venant_config.json'), 'config'),
